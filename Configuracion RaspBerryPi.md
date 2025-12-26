@@ -301,15 +301,30 @@ WireGuard es una VPN moderna y eficiente que permite acceso remoto seguro a tu r
 
 ### Configuración del Router (Port Forwarding)
 
-Para permitir conexiones VPN desde fuera de tu red local, debes configurar el reenvío de puertos en tu router:
+Para permitir conexiones VPN desde fuera de tu red local, debes configurar el reenvío de puertos en tu router.
 
-**Regla requerida:**
-- **Protocolo:** UDP
-- **Puerto externo:** 51820
-- **Puerto interno:** 51820
-- **IP destino:** IP estática de la Raspberry Pi
+#### Escenario 1: Raspberry Pi conectada directamente al router de la compañía
 
-**Ejemplo para routers MikroTik:**
+Si tu Raspberry Pi está conectada directamente al router de tu proveedor de Internet:
+
+**Configuración requerida:**
+- Accede a la configuración de tu router (generalmente http://192.168.1.1 o similar)
+- Busca la sección "Port Forwarding", "Virtual Servers" o "NAT"
+- Crea una regla con estos parámetros:
+  - **Protocolo:** UDP
+  - **Puerto externo:** 51820
+  - **Puerto interno:** 51820
+  - **IP destino:** IP estática de la Raspberry Pi (ej: 192.168.10.100)
+
+> **Nota:** La configuración varía según el modelo del router. Consulta el manual de tu router para instrucciones específicas.
+
+#### Escenario 2: Raspberry Pi detrás de un router MikroTik (Doble NAT)
+
+Si tienes un router MikroTik conectado al router de tu compañía, necesitas configurar **dos reglas**:
+
+**A) Regla NAT (Reenvío de puertos):**
+
+Esta regla redirige el tráfico desde el MikroTik hacia la Raspberry Pi:
 
 ```bash
 /ip firewall nat add \
@@ -318,12 +333,35 @@ Para permitir conexiones VPN desde fuera de tu red local, debes configurar el re
   protocol=udp \
   dst-port=51820 \
   action=dst-nat \
-  to-addresses=IP_ESTATICA_RASPBERRY \
+  to-addresses=192.168.10.100 \
   to-ports=51820 \
-  comment="WireGuard VPN"
+  comment="WireGuard VPN - NAT"
 ```
 
-> **Nota:** La configuración varía según el modelo del router. Consulta el manual de tu router para instrucciones específicas.
+**B) Regla Filter (Permitir tráfico en firewall):**
+
+Esta regla permite que el tráfico WireGuard pase a través del firewall del MikroTik:
+
+```bash
+/ip firewall filter add \
+  chain=forward \
+  in-interface=ether1 \
+  protocol=udp \
+  dst-address=192.168.10.100 \
+  dst-port=51820 \
+  action=accept \
+  comment="WireGuard WAN -> Raspberry"
+```
+
+**Parámetros a ajustar:**
+- `in-interface=ether1`: Interfaz WAN del MikroTik (cambia según tu configuración)
+- `192.168.10.100`: IP estática de tu Raspberry Pi
+
+**Configuración adicional en el router de la compañía:**
+
+También necesitarás abrir el puerto 51820 UDP en el router de tu compañía, reenviándolo a la IP del MikroTik.
+
+> **Importante:** Si usas MikroTik, asegúrate de aplicar AMBAS reglas (NAT + Filter) para que WireGuard funcione correctamente.
 
 ---
 
