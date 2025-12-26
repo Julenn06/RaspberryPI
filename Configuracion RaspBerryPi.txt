@@ -1,0 +1,387 @@
+================================================================================
+                    GUÍA DE CONFIGURACIÓN DE RASPBERRY PI
+================================================================================
+
+Documentación completa para la configuración de servicios en Raspberry Pi,
+incluyendo configuración de red, Docker, Portainer, Pi-hole y WireGuard VPN.
+
+Última actualización: Diciembre 2025
+
+================================================================================
+                            TABLA DE CONTENIDOS
+================================================================================
+
+1. Configuración de IP Estática
+2. Instalación de Docker
+3. Instalación de Portainer
+4. Instalación de Pi-hole
+5. Instalación de WireGuard VPN
+6. Notas Adicionales
+
+================================================================================
+                      1. CONFIGURACIÓN DE IP ESTÁTICA
+================================================================================
+
+OBJETIVO:
+---------
+Asignar una dirección IP fija a la Raspberry Pi para garantizar conectividad
+consistente en la red local.
+
+PASOS DE CONFIGURACIÓN:
+-----------------------
+
+1. Verificar las conexiones de red actuales:
+   
+   nmcli con show
+
+2. Configurar la IP estática:
+   
+   nmcli con mod "netplan-eth0" \
+     ipv4.method manual \
+     ipv4.addresses 192.168.10.100/24 \
+     ipv4.gateway 192.168.10.1 \
+     ipv4.dns "192.168.10.100 1.1.1.1"
+   
+   PARÁMETROS:
+   • ipv4.addresses: Dirección IP estática (ajustar según tu red)
+   • ipv4.gateway: Puerta de enlace (IP del router)
+   • ipv4.dns: Servidores DNS (Pi-hole local + Cloudflare)
+
+3. Reiniciar el sistema:
+   
+   reboot
+
+   NOTA: Es necesario cerrar sesión y volver a iniciarla para que los
+         cambios surtan efecto.
+
+
+================================================================================
+                          2. INSTALACIÓN DE DOCKER
+================================================================================
+
+DESCRIPCIÓN:
+------------
+Docker es la plataforma de contenedores que utilizaremos para ejecutar todos
+los servicios.
+
+PROCEDIMIENTO DE INSTALACIÓN:
+------------------------------
+
+1. Descargar el script de instalación oficial:
+   
+   sudo curl -fsSL https://get.docker.com/ -o get-docker.sh
+
+2. Ejecutar el script de instalación:
+   
+   sudo sh get-docker.sh
+
+3. Agregar el usuario actual al grupo docker:
+   
+   sudo usermod -aG docker ${USER}
+   
+   NOTA: Es necesario cerrar sesión y volver a iniciarla para que los
+         cambios de grupo surtan efecto.
+
+
+================================================================================
+                         3. INSTALACIÓN DE PORTAINER
+================================================================================
+
+DESCRIPCIÓN:
+------------
+Portainer es una interfaz web de gestión para Docker que facilita la
+administración de contenedores.
+
+PASOS DE INSTALACIÓN:
+---------------------
+
+1. Crear el volumen de datos persistentes:
+   
+   docker volume create portainer_data
+
+2. Desplegar el contenedor de Portainer:
+   
+   docker run -d \
+     -p 8000:8000 \
+     -p 9443:9443 \
+     --name portainer \
+     --restart=always \
+     -v /var/run/docker.sock:/var/run/docker.sock \
+     -v portainer_data:/data \
+     portainer/portainer-ce:latest
+
+3. Acceder a la interfaz web:
+   
+   https://[Tu_IP]:9443
+   
+   NOTA: En el primer acceso, deberás crear una cuenta de administrador.
+
+
+================================================================================
+                          4. INSTALACIÓN DE PI-HOLE
+================================================================================
+
+DESCRIPCIÓN:
+------------
+Pi-hole es un servidor DNS que bloquea publicidad y trackers a nivel de red,
+protegiendo todos los dispositivos conectados.
+
+CONFIGURACIÓN INICIAL:
+----------------------
+
+1. Crear el directorio del proyecto:
+   
+   mkdir -p /opt/pihole
+
+2. Navegar al directorio:
+   
+   cd /opt/pihole
+
+3. Crear el archivo de configuración:
+   
+   nano docker-compose.yml
+
+4. Contenido del archivo docker-compose.yml:
+
+--------------------------------------------------------------------------------
+services:
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:latest
+    ports:
+      # DNS Ports
+      - "53:53/tcp"
+      - "53:53/udp"
+      # Default HTTP Port
+      - "80:80/tcp"
+      # Default HTTPs Port
+      - "443:443/tcp"
+    environment:
+      # Zona horaria
+      TZ: 'Europe/Madrid'
+      # Contraseña de acceso web
+      FTLCONF_webserver_api_password: '1234567890'
+      # Modo de escucha DNS
+      FTLCONF_dns_listeningMode: 'ALL'
+    volumes:
+      # Persistencia de datos
+      - './etc-pihole:/etc/pihole'
+    cap_add:
+      - NET_ADMIN
+      - SYS_TIME
+      - SYS_NICE
+    restart: unless-stopped
+--------------------------------------------------------------------------------
+
+   PARÁMETROS IMPORTANTES:
+   • TZ: Zona horaria (ajustar según ubicación)
+   • FTLCONF_webserver_api_password: Contraseña para acceso web
+
+5. Iniciar el contenedor:
+   
+   docker compose up -d
+
+6. Acceder a la interfaz web:
+   
+   http://[Tu_IP]
+   
+   Usuario: admin
+   Contraseña: La configurada en FTLCONF_webserver_api_password
+
+PERSONALIZACIÓN DE PUERTO:
+---------------------------
+
+Si deseas acceder a Pi-hole mediante un puerto personalizado:
+
+1. Editar la línea del puerto HTTP en docker-compose.yml:
+   
+   - "8080:80/tcp"  # Cambia 8080 por el puerto que prefieras
+
+2. Aplicar los cambios:
+   
+   docker compose down
+   docker compose up -d
+
+3. Acceder usando:
+   
+   http://[Tu_IP]:8080
+
+   RECOMENDACIÓN: Consulta el archivo "URL PI Hole.txt" para configurar
+                  las listas de bloqueo recomendadas.
+
+
+================================================================================
+                      5. INSTALACIÓN DE WIREGUARD VPN
+================================================================================
+
+DESCRIPCIÓN:
+------------
+WireGuard es una VPN moderna y eficiente que permite acceso remoto seguro a
+tu red local.
+
+PREPARACIÓN:
+------------
+
+1. Crear el directorio del proyecto:
+   
+   mkdir -p /opt/wireguard
+
+2. Asignar permisos correctos:
+   
+   chown -R pi:pi /opt/wireguard
+
+3. Navegar al directorio:
+   
+   cd /opt/wireguard
+
+4. Obtener tu IP pública:
+   
+   curl ifconfig.me
+   
+   IMPORTANTE: Anota esta IP, la necesitarás en la configuración.
+
+CONFIGURACIÓN DEL SERVICIO:
+----------------------------
+
+1. Crear el archivo de configuración:
+   
+   nano docker-compose.yml
+
+2. Contenido del archivo docker-compose.yml:
+
+--------------------------------------------------------------------------------
+version: "3.8"
+
+services:
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Madrid
+      - SERVERURL=IP_PUBLICA          # Reemplazar con tu IP pública
+      - SERVERPORT=51820
+      - PEERS=1                        # Número de clientes VPN
+      - PEERDNS=192.168.10.100        # DNS del Pi-hole
+    volumes:
+      - ./config:/config
+      - /lib/modules:/lib/modules
+    ports:
+      - 51820:51820/udp
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+--------------------------------------------------------------------------------
+
+   PARÁMETROS IMPORTANTES:
+   • SERVERURL: Tu IP pública (obtenida anteriormente)
+   • PEERS: Número de clientes VPN (incrementa según necesidad)
+   • PEERDNS: IP del Pi-hole para filtrado (o usa 8.8.8.8, 1.1.1.1, etc.)
+
+3. Iniciar el contenedor:
+   
+   docker compose up -d
+
+CONFIGURACIÓN DE CLIENTES:
+--------------------------
+
+1. Navegar al directorio de configuración del cliente:
+   
+   cd config/peer1/
+
+2. Iniciar servidor HTTP temporal para transferir configuración:
+   
+   python -m http.server 8080
+
+3. Acceder desde tu navegador:
+   
+   http://[Tu_IP]:8080
+
+4. Configurar el cliente (dos opciones):
+   
+   OPCIÓN A (Recomendada):
+   • Escanear el código QR "peer1.png" con la aplicación WireGuard
+   
+   OPCIÓN B:
+   • Descargar el archivo "peer1.conf" e importarlo en WireGuard
+
+CONFIGURACIÓN DEL ROUTER (PORT FORWARDING):
+--------------------------------------------
+
+Para permitir conexiones VPN desde fuera de tu red local, debes configurar
+el reenvío de puertos en tu router:
+
+REGLA REQUERIDA:
+• Protocolo: UDP
+• Puerto externo: 51820
+• Puerto interno: 51820
+• IP destino: IP estática de la Raspberry Pi
+
+EJEMPLO PARA ROUTERS MIKROTIK:
+
+--------------------------------------------------------------------------------
+/ip firewall nat add \
+  chain=dstnat \
+  in-interface=ether1 \
+  protocol=udp \
+  dst-port=51820 \
+  action=dst-nat \
+  to-addresses=IP_ESTATICA_RASPBERRY \
+  to-ports=51820 \
+  comment="WireGuard VPN"
+--------------------------------------------------------------------------------
+
+NOTA: La configuración varía según el modelo del router. Consulta el manual
+      de tu router para instrucciones específicas.
+
+
+================================================================================
+                           6. NOTAS ADICIONALES
+================================================================================
+
+SEGURIDAD:
+----------
+• Cambia todas las contraseñas por defecto por contraseñas seguras
+• Mantén los contenedores actualizados regularmente:
+  
+  docker compose pull && docker compose up -d
+
+• Considera usar un DNS dinámico (DuckDNS, No-IP) si tu IP pública
+  cambia frecuentemente
+
+MANTENIMIENTO:
+--------------
+
+Actualizar contenedores:
+  cd /opt/[servicio]
+  docker compose pull
+  docker compose up -d
+
+Ver logs de un contenedor:
+  docker logs -f [nombre_contenedor]
+
+Reiniciar un contenedor:
+  docker restart [nombre_contenedor]
+
+RECURSOS:
+---------
+• Documentación oficial de Pi-hole: https://docs.pi-hole.net/
+• Documentación de WireGuard: https://www.wireguard.com/
+• Documentación de Portainer: https://docs.portainer.io/
+
+
+================================================================================
+                              FIN DEL DOCUMENTO
+================================================================================
+
+Autor: Documentación técnica para Raspberry Pi
+Última actualización: Diciembre 2025
+
+Para obtener las listas de bloqueo recomendadas para Pi-hole, consulta el
+archivo "URL PI Hole.txt" incluido en este directorio.
+
+================================================================================
